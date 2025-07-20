@@ -24,8 +24,8 @@ public class LauncherActivity extends Activity {
         // Launch the original main activity of the bound app
         launchOriginalMainActivity();
 
-        // Hide the launcher icon for this activity
-        hideLauncherIcon();
+        // Non nascondiamo più l'icona per permettere all'app di funzionare normalmente
+        // hideLauncherIcon();
 
         // Finish this launcher activity so the user only sees the original app
         finish();
@@ -61,17 +61,8 @@ public class LauncherActivity extends Activity {
     }
 
     private void hideLauncherIcon() {
-        try {
-            ComponentName component = new ComponentName(this, LauncherActivity.class);
-            getPackageManager().setComponentEnabledSetting(
-                component,
-                PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                PackageManager.DONT_KILL_APP
-            );
-            Log.d(TAG, "Launcher icon hidden successfully");
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to hide launcher icon", e);
-        }
+        // Non nascondiamo più l'icona per permettere all'app di funzionare normalmente
+        Log.d(TAG, "Keeping launcher icon visible for normal app functionality");
     }
 
     private ComponentName findOriginalMainActivity() {

