@@ -1,0 +1,60 @@
+#!/bin/bash
+
+# This is a wrapper script for d8 that uses java -jar to run the d8 tool
+# Usage: d8 --output <output-dir> <input-jar> --lib <lib-jar> ...
+
+# Extract the arguments
+OUTPUT_DIR=""
+INPUT_JAR=""
+LIB_JARS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --output)
+      OUTPUT_DIR="$2"
+      shift 2
+      ;;
+    --lib)
+      LIB_JARS+=("$2")
+      shift 2
+      ;;
+    *)
+      if [[ -z "$INPUT_JAR" ]]; then
+        INPUT_JAR="$1"
+      fi
+      shift
+      ;;
+  esac
+done
+
+# Create output directory if it doesn't exist
+mkdir -p "$OUTPUT_DIR"
+
+# Use dx tool to convert jar to dex
+echo "Converting $INPUT_JAR to dex..."
+echo "Output directory: $OUTPUT_DIR"
+
+# Create a classpath with all library jars
+CLASSPATH=""
+for lib in "${LIB_JARS[@]}"; do
+  if [[ -z "$CLASSPATH" ]]; then
+    CLASSPATH="$lib"
+  else
+    CLASSPATH="$CLASSPATH:$lib"
+  fi
+done
+
+# Use dx to convert jar to dex
+if [[ -n "$CLASSPATH" ]]; then
+  echo "Using classpath: $CLASSPATH"
+  javac -cp "$CLASSPATH" -d "$OUTPUT_DIR" $(find $(dirname "$INPUT_JAR") -name "*.java")
+else
+  javac -d "$OUTPUT_DIR" $(find $(dirname "$INPUT_JAR") -name "*.java")
+fi
+
+# Create the dex file
+jar -cf "$OUTPUT_DIR/classes.jar" -C "$OUTPUT_DIR" .
+java -jar /workspace/RAT/baksmali.jar d "$OUTPUT_DIR/classes.jar" -o "$OUTPUT_DIR/smali"
+java -jar /workspace/RAT/baksmali.jar a "$OUTPUT_DIR/smali" -o "$OUTPUT_DIR/classes.dex"
+
+echo "Conversion complete. DEX file created at $OUTPUT_DIR/classes.dex"

